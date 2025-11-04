@@ -7,17 +7,21 @@ import http from "http";
 import { Server } from "socket.io";
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
-import streamifier from 'streamifier';
-
-dotenv.config();
+import authRouter from './routes/auth.js';
+import whiteboardRouter from './routes/whiteboards.js';
+import Whiteboard from './schema/whiteboard.js';
 
 const app = express();
+dotenv.config();
+
 app.use(cors({
   origin: "http://localhost:5173",
   credentials: true
 }));
+
 app.use(express.json({limit: '10mb'}));
 app.use(cookieParser());
+
 const server = http.createServer(app); 
 const PORT = process.env.PORT || 3000;
 const boardMap = {};
@@ -48,10 +52,10 @@ mongoose
   })
   .then(() => console.log("MongoDB Connected"))
   .catch((err) => console.log(err));
-// Import routers and models from modular files
-import authRouter from './routes/auth.js';
-import whiteboardRouter from './routes/whiteboards.js';
-import Whiteboard from './schema/whiteboard.js';
+
+// Mount Routes
+app.use("/api/auth", authRouter);
+app.use("/api/whiteboards", whiteboardRouter);
 
 
 io.on('connection', (socket) => {
@@ -139,10 +143,6 @@ io.on('connection', (socket) => {
     }
   });
 });
-
-// Mount Routes
-app.use("/api/auth", authRouter);
-app.use("/api/whiteboards", whiteboardRouter);
 
 
 server.listen(PORT, () => console.log(`Server with socket running on port ${PORT}`));
