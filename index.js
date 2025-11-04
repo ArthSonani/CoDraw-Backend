@@ -8,7 +8,7 @@ import { Server } from "socket.io";
 import { v2 as cloudinary } from 'cloudinary';
 import authRouter from './routes/auth.js';
 import whiteboardRouter from './routes/whiteboards.js';
-import Whiteboard from './schema/whiteboard.js';
+import Whiteboard from './models/whiteboard.js';
 
 const app = express();
 dotenv.config();
