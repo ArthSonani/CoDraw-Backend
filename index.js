@@ -1,8 +1,6 @@
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import http from "http"; 
@@ -50,114 +48,96 @@ mongoose
   })
   .then(() => console.log("MongoDB Connected"))
   .catch((err) => console.log(err));
-
-// User Schema & Model
-const userSchema = new mongoose.Schema({
-  name: String,
-  email: { type: String, unique: true },
-  password: String,
-});
-
-const User = mongoose.model("User", userSchema);
-
-// Whiteboard Schema & Model
-const whiteboardSchema = new mongoose.Schema({
-  _id: {
-    type: String, 
-  },
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  data: {
-    type: Object,
-    required: true
-  },
-  previewImage: {
-    type: String, 
-    default: ''
-  },
-  createdAt: { type: Date, default: Date.now },
-});
-
-const Whiteboard = mongoose.model("Whiteboard", whiteboardSchema);
-
-// JWT Authentication Middleware
-const authenticateUser = (req, res, next) => {
-  const token = req.cookies.token;
-  if (!token) return res.status(401).json({ error: "Unauthorized" });
-
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.userId = decoded.userId;
-    next();
-  } catch (error) {
-    return res.status(401).json({ error: "Invalid token" });
-  }
-};
-
-// Authentication Routes
-const authRouter = express.Router();
-
-// Signup Route
-authRouter.post("/signup", async (req, res) => {
-
-  console.log("Signup attempt:", req.body);
-  const { name, email, password } = req.body;
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({ name, email, password: hashedPassword });
-    await user.save();
-
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
-
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "None", // required for cross-site cookies
-    });
-
-    res.status(201).json({
-      message: "User created and logged in",
-      user: { id: user._id, name: user.name }
-    });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
+// Import routers and models from modular files
+import authRouter from './routes/auth.js';
+import whiteboardRouter from './routes/whiteboards.js';
+import Whiteboard from './schema/whiteboard.js';
 
 
-// Login Route
-authRouter.post("/login", async (req, res) => {
+io.on('connection', (socket) => {
+  console.log('Client connected:', socket.id);
 
-  console.log("Login attempt:", req.body);
-  const { email, password } = req.body;
-  const user = await User.findOne({ email });
-  if (!user) return res.status(400).json({ error: "User not found" });
+  socket.on('join-board', async ({boardId, data, role}) => {
+    if(boardId.length == 6){
+      const regex = new RegExp(boardId + '$');
+      const whiteboard = await Whiteboard.findOne({_id: { $regex: regex }});
+      if(whiteboard){
+        boardId = whiteboard._id;
+      }
+    }
+    if(role == 'host'){
+      boardMap[boardId] = data;
+      boardHosts[boardId] = socket.id;
+    }
+    socket.join(boardId);
+    if(role == 'viewer'){
+      socket.emit('send-current-data', { data: boardMap[boardId], boardId: boardId });
 
-  const isValid = await bcrypt.compare(password, user.password);
-  if (!isValid) return res.status(400).json({ error: "Invalid password" });
-
-  const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-    expiresIn: "7d",
+      const hostSocketId = boardHosts[boardId];
+      if (hostSocketId) {
+        io.to(hostSocketId).emit('viewer-joined', {
+          boardId,
+          socketId: socket.id,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+    console.log(`Socket ${socket.id} joined board ${boardId}`);
   });
 
-  res.cookie("token", token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "None",
+  socket.on('canvas-data', ({ boardId, data }) => {
+    socket.to(boardId).emit('canvas-data', { boardId, data });
   });
 
-  res.json({ message: "Login successful", user: { id: user._id, name: user.name } });
-});
+  socket.on('join-voice', ({ boardId, peerId }) => {
+    if (!voiceRooms[boardId]) voiceRooms[boardId] = {};
 
-// Logout Route
-authRouter.post("/logout", (req, res) => {
-  res.cookie("token", "", { expires: new Date(0), httpOnly: true });
-  res.status(200).json({ message: "Logout successful" });
+    voiceRooms[boardId][socket.id] = peerId;
+    socket.join(`voice-${boardId}`);
+
+    console.log(`${peerId} joined voice in ${boardId}`);
+
+    // Notify all others
+    socket.to(`voice-${boardId}`).emit('user-joined-voice', {
+      socketId: socket.id,
+      peerId
+    });
+
+    // Send existing users to the new user
+    const existingPeers = Object.entries(voiceRooms[boardId])
+      .filter(([id]) => id !== socket.id)
+      .map(([id, peerId]) => ({ socketId: id, peerId }));
+
+    socket.emit('all-peers', existingPeers.map(user => user.peerId));
+  });
+
+  socket.on('leave-voice', ({ boardId }) => {
+    if (voiceRooms[boardId]) {
+      const peerId = voiceRooms[boardId][socket.id];
+      delete voiceRooms[boardId][socket.id];
+      socket.leave(`voice-${boardId}`);
+      socket.to(`voice-${boardId}`).emit('user-left-voice', {
+        socketId: socket.id,
+        peerId,
+      });
+      console.log(`${peerId} left voice in ${boardId}`);
+    }
+  });
+
+
+  socket.on('disconnect', () => {
+    console.log('Client disconnected:', socket.id);
+    for (const boardId in voiceRooms) {
+      if (voiceRooms[boardId][socket.id]) {
+        const peerId = voiceRooms[boardId][socket.id];
+        delete voiceRooms[boardId][socket.id];
+        socket.to(`voice-${boardId}`).emit('user-left-voice', {
+          socketId: socket.id,
+          peerId,
+        });
+      }
+    }
+  });
 });
 
 // Mount Routes
