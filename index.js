@@ -6,7 +6,6 @@ import cookieParser from "cookie-parser";
 import http from "http"; 
 import { Server } from "socket.io";
 import { v2 as cloudinary } from 'cloudinary';
-import multer from 'multer';
 import authRouter from './routes/auth.js';
 import whiteboardRouter from './routes/whiteboards.js';
 import Whiteboard from './schema/whiteboard.js';
@@ -41,8 +40,6 @@ cloudinary.config({
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
-
-const upload = multer();
 
 // MongoDB Connection
 mongoose
