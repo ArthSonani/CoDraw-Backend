@@ -15,7 +15,7 @@ import textToDrawingRouter from './routes/textToDraw.js';
 const app = express();
 
 app.use(cors({
-  origin: "http://localhost:5173",
+  origin: "https://codraw-dashboard.vercel.app",
   credentials: true
 }));
 
