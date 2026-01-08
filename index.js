@@ -1,7 +1,7 @@
+import "./loadEnv.js";
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
-import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import http from "http"; 
 import { Server } from "socket.io";
@@ -9,9 +9,10 @@ import { v2 as cloudinary } from 'cloudinary';
 import authRouter from './routes/auth.js';
 import whiteboardRouter from './routes/whiteboards.js';
 import Whiteboard from './models/whiteboard.js';
+import metricsRouter from './routes/metrics.js';
+import textToDrawingRouter from './routes/textToDraw.js';
 
 const app = express();
-dotenv.config();
 
 app.use(cors({
   origin: "http://localhost:5173",
@@ -50,6 +51,8 @@ mongoose
 // Mount Routes
 app.use("/api/auth", authRouter);
 app.use("/api/whiteboards", whiteboardRouter);
+app.use("/api/metrics", metricsRouter);
+app.use("/api/text-to-drawing", textToDrawingRouter);
 
 
 io.on('connection', (socket) => {
